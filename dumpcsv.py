@@ -1,9 +1,10 @@
 import os
 import pytz
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
+
+carparks = []
 
 # Timezone conversion to Singapore Time
 singapore_zone = pytz.timezone('Asia/Singapore')
@@ -11,62 +12,70 @@ sg_datetime = datetime.now(singapore_zone).strftime("%d-%m-%Y_%H")
 sg_date = datetime.now(singapore_zone).strftime("%d-%m-%Y")
 sg_hour = datetime.now(singapore_zone).strftime("%H")
 
-legend = [
-    {"Code": "BPlus", "Name": "Bugis +"},
-    {"Code": "CQ", "Name": "Clarke Quay"},
-    {"Code": "FN", "Name": "Funan"},
-    {"Code": "PS", "Name": "Plaza Singapura"},
-    {"Code": "RCS", "Name": "Raffles City"},
-    {"Code": "TAO", "Name": "The Atrium@Orchard"},
-    {"Code": "BM", "Name": "Bedok Mall"},
-    {"Code": "TM", "Name": "Tampines Mall"},
-    {"Code": "BPP", "Name": "Bukit Panjang Plaza"},
-    {"Code": "J8", "Name": "Junction 8"},
-    {"Code": "LO", "Name": "Lot One"},
-    {"Code": "IMM", "Name": "IMM"},
-    {"Code": "WG", "Name": "Westgate"},
-    {"Code": "CG", "Name": "CapitaGreen"},
-    {"Code": "CT", "Name": "Capital Tower"},
-    {"Code": "SBR", "Name": "Six Battery Road"},
-    {"Code": "CS", "Name": "CapitaSpring"},
-]
+try:
+    SOME_SECRET = os.environ["SOME_SECRET"]
+except KeyError:
+    SOME_SECRET = "Token not available!"
 
-locations = []
+url = "http://datamall2.mytransport.sg/ltaodataservice/CarParkAvailabilityv2"
 
-url = "https://justpark.capitaland.com/LotsAvail"
+querystring = {"skip":"0"}
 
-headers = {"User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"}
-r = requests.get(url, headers=headers)
+payload = ""
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "AccountKey": SOME_SECRET
+}
 
-soup = BeautifulSoup(r.content, "html.parser")
+response = requests.request("GET", url, data=payload, headers=headers, params=querystring)
+results = response.json()
 
-section = soup.find("div", attrs={"class": "lots-form"})
-boxes = section.find_all("div", attrs={"class": "listing-item"})
+dataset = results['value']
+for data in dataset:
+    carpark_id = data['CarParkID']
+    area = data['Area']
+    development = data['Development']
 
-for box in boxes:
-    div = box.find("div", attrs={"class": "lotscount"})
-    name = div['id'].split("onClickSeason")[1]
-    available_lots = div.find("span").text
-    
+    try:
+        latitude = data['Location'].split(" ")[0]
+        longitude = data['Location'].split(" ")[1]
+    except:
+        latitude = None
+        longitude = None
+
+    available_Lots = data['AvailableLots']
+    lot_type = data['LotType']
+    agency = data['Agency']
+
     record = {
-        "Code": name,
+        "Carpark_ID": carpark_id,
+        "Area": area,
+        "Development": development,
         "Date": sg_date,
         "Hour": sg_hour,
-        "Available Lots": available_lots
+        "Latitude": latitude,
+        "Longitude": longitude,
+        "Available Lots": available_Lots,
+        "Lot_Type": lot_type,
+        "Agency": agency
     }
 
-    locations.append(record)
+    carparks.append(record)
 
-df_legend = pd.DataFrame(legend)
-df = pd.DataFrame(locations)
-df_final = df_legend.merge(df, left_on="Code", right_on="Code")
+df = pd.DataFrame(carparks)
+
+def_list = [{"Lot_Type": "C", "Lot Type": "Cars"}, {"Lot_Type": "H", "Lot Type": "Heavy Vehicles"}, {"Lot_Type": "Y", "Lot Type": "Motorcycles"}]
+df_def = pd.DataFrame(def_list)
+
+df_final = df.merge(df_def, left_on="Lot_Type", right_on="Lot_Type")
+df_final = df_final[['Carpark_ID', 'Area', 'Development', 'Latitude', 'Longitude', 'Available Lots', 'Lot Type', 'Agency']]
 
 # Create the tiprank folder if it doesn't exist
-if not os.path.exists('JustPark'):
-    os.makedirs('JustPark')
+if not os.path.exists('LTA'):
+    os.makedirs('LTA')
 
 # Create CSV filename with current date and time
-csv_filename = f"JustPark/JustPark_{sg_datetime}.csv"
+csv_filename = f"LTA/LTA_{sg_datetime}.csv"
   
 # Dump dataframe to CSV
 df_final.to_csv(csv_filename, index=False)
